@@ -55,6 +55,7 @@ public class ClickService extends AccessibilityService {
     private LinearLayout panel;
     private WindowManager.LayoutParams panelLp;
     private TextView btnPlay, btnRecord, statusView;
+    private final List<View> editButtons = new ArrayList<>();
 
     private final List<View> markers = new ArrayList<>();
     private boolean markersVisible = true;
@@ -201,8 +202,12 @@ public class ClickService extends AccessibilityService {
         TextView close = panelButton("✕");
         statusView = new TextView(this);
         statusView.setTextColor(Color.WHITE);
-        statusView.setTextSize(11);
-        statusView.setPadding(dp(4), 0, dp(6), 0);
+        statusView.setTextSize(12);
+        statusView.setSingleLine(true);
+        statusView.setMaxWidth(dp(120));
+        statusView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        statusView.setPadding(dp(2), 0, dp(10), 0);
+        statusView.setVisibility(View.GONE);
 
         btnPlay.setOnClickListener(v -> {
             if (running) stop();
@@ -245,6 +250,13 @@ public class ClickService extends AccessibilityService {
         panel.addView(settings);
         panel.addView(close);
         panel.addView(statusView);
+        editButtons.clear();
+        editButtons.add(add);
+        editButtons.add(swipe);
+        editButtons.add(undo);
+        editButtons.add(eye);
+        editButtons.add(settings);
+        editButtons.add(close);
 
         panelLp = overlayParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, true);
         panelLp.x = dp(8);
@@ -284,7 +296,13 @@ public class ClickService extends AccessibilityService {
             btnPlay.setText(running ? "■" : "▶");
             btnPlay.setTextColor(running ? 0xFFFF5252 : 0xFF69F0AE);
             btnRecord.setTextColor(recordView != null ? 0xFFFF5252 : Color.WHITE);
-            if (!running && recordView == null) statusView.setText("");
+            // Mientras se ejecuta, el panel se reduce a ⠿ ■ y un estado corto.
+            int editVis = running ? View.GONE : View.VISIBLE;
+            for (View b : editButtons) b.setVisibility(editVis);
+            btnRecord.setVisibility(running ? View.GONE : View.VISIBLE);
+            boolean showStatus = running || recordView != null;
+            statusView.setVisibility(showStatus ? View.VISIBLE : View.GONE);
+            if (!showStatus) statusView.setText("");
         });
     }
 
@@ -584,7 +602,7 @@ public class ClickService extends AccessibilityService {
         recordView = v;
         bringPanelToFront();
         updatePanel();
-        setStatus("Grabando…");
+        setStatus("Grabando");
         toast("Grabando: toca, mantén o desliza sobre la pantalla. Pulsa ● para terminar.");
     }
 
@@ -613,7 +631,7 @@ public class ClickService extends AccessibilityService {
                 prev.type = Action.Type.DOUBLE_TAP;
                 prev.delayAfter = 500;
                 lastRecordUp = up;
-                setStatus("Grabadas: " + list.size());
+                setStatus("REC " + list.size());
                 return;
             }
             a = Action.of(dt >= 450 ? Action.Type.LONG_PRESS : Action.Type.TAP, x, y);
@@ -648,7 +666,7 @@ public class ClickService extends AccessibilityService {
         a.delayAfter = 500;
         list.add(a);
         lastRecordUp = up;
-        setStatus("Grabadas: " + list.size());
+        setStatus("REC " + list.size());
     }
 
     private static void appendPoint(StringBuilder sb, float[] p) {
@@ -704,7 +722,7 @@ public class ClickService extends AccessibilityService {
                 for (int i = 0; i < s.actions.size() && running; i++) {
                     Action a = s.actions.get(i);
                     for (int r = 0; r < a.repeat && running; r++) {
-                        setStatus("Vuelta " + loop + (s.loops > 0 ? "/" + s.loops : "") + " · acción " + (i + 1));
+                        setStatus("V" + loop + (s.loops > 0 ? "/" + s.loops : "") + " · A" + (i + 1));
                         execute(a, s);
                         sleepVar(a.delayAfter, s);
                         if (SystemClock.uptimeMillis() >= endAt) break;
