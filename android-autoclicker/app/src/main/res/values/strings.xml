@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AutoClicker</string>
+    <string name="service_label">AutoClicker – automatización de toques</string>
+    <string name="service_description">Permite a AutoClicker realizar toques, deslizamientos, pulsaciones largas, gestos y pulsar botones por texto en cualquier app según los scripts que configures. Muestra un panel flotante para controlar la ejecución. Pulsa Volumen- para detener una ejecución en curso.</string>
+</resources>
