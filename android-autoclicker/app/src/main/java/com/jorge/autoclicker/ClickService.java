@@ -3,29 +3,37 @@ package com.jorge.autoclicker;
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.GestureDescription;
 import android.annotation.SuppressLint;
+import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Path;
 import android.graphics.PixelFormat;
 import android.graphics.Point;
 import android.graphics.Rect;
+import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.text.InputType;
 import android.util.DisplayMetrics;
 import android.util.TypedValue;
+import android.view.ContextThemeWrapper;
 import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
+import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -181,7 +189,7 @@ public class ClickService extends AccessibilityService {
 
     public void showPanel() {
         if (panel != null || wm == null) return;
-        panel = new LinearLayout(this);
+        panel = new DragPanel(this);
         panel.setOrientation(LinearLayout.HORIZONTAL);
         panel.setGravity(Gravity.CENTER_VERTICAL);
         int pad = dp(4);
@@ -214,17 +222,8 @@ public class ClickService extends AccessibilityService {
             else start();
         });
         add.setOnClickListener(v -> addActionAtCenter(Action.Type.TAP));
-        add.setOnLongClickListener(v -> {
-            addActionAtCenter(Action.Type.LONG_PRESS);
-            toast("Pulsación larga añadida");
-            return true;
-        });
         swipe.setOnClickListener(v -> addActionAtCenter(Action.Type.SWIPE));
         undo.setOnClickListener(v -> deleteLastAction());
-        undo.setOnLongClickListener(v -> {
-            confirmDeleteAll();
-            return true;
-        });
         btnRecord.setOnClickListener(v -> {
             if (recordView != null) stopRecording(true);
             else startRecording();
@@ -396,52 +395,296 @@ public class ClickService extends AccessibilityService {
         markerMenu = null;
     }
 
-    /** Menú al tocar un marcador: eliminar la acción. */
-    private void showMarkerMenu(int index, WindowManager.LayoutParams markerLp) {
+    /** Editor flotante al tocar un marcador: tipo, coordenadas, tiempos y eliminar. */
+    private void showMarkerEditor(int index) {
         closeMarkerMenu();
-        Script s = ScriptStore.loadCurrent(this);
-        if (index >= s.actions.size()) return;
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.HORIZONTAL);
-        box.setGravity(Gravity.CENTER_VERTICAL);
-        int pad = dp(6);
-        box.setPadding(pad, pad, pad, pad);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0xF0202124);
-        bg.setCornerRadius(dp(14));
-        box.setBackground(bg);
-
-        TextView title = new TextView(this);
-        title.setText((index + 1) + ". " + s.actions.get(index).type.label);
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(13);
-        title.setPadding(dp(8), 0, dp(8), 0);
-        TextView del = menuButton("🗑 Eliminar", 0xFFFF5252);
-        TextView cancel = menuButton("Cancelar", Color.WHITE);
-        del.setOnClickListener(v -> deleteAction(index));
-        cancel.setOnClickListener(v -> closeMarkerMenu());
-        box.addView(title);
-        box.addView(del);
-        box.addView(cancel);
-
-        WindowManager.LayoutParams lp = overlayParams(WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.WRAP_CONTENT, true);
+        Script script = ScriptStore.loadCurrent(this);
+        if (index >= script.actions.size()) return;
+        Action a = script.actions.get(index);
+        Context ctx = new ContextThemeWrapper(this, android.R.style.Theme_DeviceDefault);
         Point sz = screenSize();
-        lp.x = Math.max(0, Math.min(markerLp.x - dp(60), sz.x - dp(300)));
-        lp.y = markerLp.y + dp(50);
-        if (lp.y > sz.y - dp(120)) lp.y = markerLp.y - dp(60);
-        wm.addView(box, lp);
-        markerMenu = box;
+
+        LinearLayout box = new LinearLayout(ctx);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int pad = dp(16);
+        box.setPadding(pad, pad, pad, dp(8));
+
+        TextView title = new TextView(ctx);
+        title.setText("Acción " + (index + 1));
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(18);
+        title.setTypeface(null, Typeface.BOLD);
+        box.addView(title);
+
+        // Tipos compatibles con los puntos de este marcador.
+        Action.Type[] options = a.type.hasSecondPoint()
+                ? new Action.Type[]{Action.Type.SWIPE, Action.Type.PINCH_IN, Action.Type.PINCH_OUT, Action.Type.MULTI_TAP}
+                : new Action.Type[]{Action.Type.TAP, Action.Type.DOUBLE_TAP, Action.Type.LONG_PRESS};
+        final Action.Type[] chosen = {a.type};
+        LinearLayout chips = new LinearLayout(ctx);
+        chips.setOrientation(LinearLayout.VERTICAL);
+        box.addView(editorLabel(ctx, "Tipo"));
+        box.addView(chips);
+
+        EditText ex = editorNum(ctx, a.x), ey = editorNum(ctx, a.y);
+        EditText ex2 = editorNum(ctx, a.x2), ey2 = editorNum(ctx, a.y2);
+        EditText eDur = editorNum(ctx, a.duration);
+        EditText eRep = editorNum(ctx, a.repeat);
+        EditText eDelay = editorNum(ctx, a.delayAfter);
+
+        box.addView(editorLabel(ctx, a.type.hasSecondPoint() ? "Punto A (X, Y)" : "Posición (X, Y)"));
+        box.addView(editorRow(ctx, ex, ey));
+        if (a.type.hasSecondPoint()) {
+            box.addView(editorLabel(ctx, "Punto B (X, Y)"));
+            box.addView(editorRow(ctx, ex2, ey2));
+        }
+        TextView lDur = editorLabel(ctx, "Duración (ms)");
+        box.addView(lDur);
+        box.addView(eDur);
+        box.addView(editorLabel(ctx, "Repetir (veces seguidas)"));
+        box.addView(eRep);
+        box.addView(editorLabel(ctx, "Pausa después (ms)"));
+        box.addView(eDelay);
+
+        Runnable renderChips = new Runnable() {
+            @Override
+            public void run() {
+                chips.removeAllViews();
+                LinearLayout row = null;
+                for (int i = 0; i < options.length; i++) {
+                    if (i % 2 == 0) {
+                        row = new LinearLayout(ctx);
+                        chips.addView(row);
+                    }
+                    Action.Type t = options[i];
+                    TextView c = new TextView(ctx);
+                    c.setText(t.label);
+                    c.setTextSize(14);
+                    c.setGravity(Gravity.CENTER);
+                    c.setSingleLine(true);
+                    c.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                    c.setPadding(dp(8), dp(8), dp(8), dp(8));
+                    boolean sel = t == chosen[0];
+                    GradientDrawable d = new GradientDrawable();
+                    d.setCornerRadius(dp(18));
+                    d.setColor(sel ? 0xFF1E88E5 : 0x00000000);
+                    d.setStroke(dp(1), sel ? 0xFF1E88E5 : 0xFF777777);
+                    c.setBackground(d);
+                    c.setTextColor(Color.WHITE);
+                    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+                    lp.setMargins(dp(3), dp(3), dp(3), dp(3));
+                    c.setOnClickListener(v -> {
+                        if (chosen[0] != t) {
+                            chosen[0] = t;
+                            Action tmp = new Action();
+                            tmp.type = t;
+                            tmp.applyDefaultDuration();
+                            eDur.setText(String.valueOf(tmp.duration));
+                        }
+                        run();
+                    });
+                    row.addView(c, lp);
+                }
+                boolean dur = chosen[0].hasDuration();
+                lDur.setVisibility(dur ? View.VISIBLE : View.GONE);
+                eDur.setVisibility(dur ? View.VISIBLE : View.GONE);
+            }
+        };
+        renderChips.run();
+
+        LinearLayout buttons = new LinearLayout(ctx);
+        buttons.setGravity(Gravity.CENTER_VERTICAL);
+        buttons.setPadding(0, dp(12), 0, 0);
+        TextView del = editorButton(ctx, "Eliminar", 0xFFFF6E6E);
+        TextView cancel = editorButton(ctx, "Cancelar", 0xFFBBBBBB);
+        TextView save = editorButton(ctx, "Guardar", 0xFF64B5F6);
+        buttons.addView(del, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        buttons.addView(save, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        box.addView(buttons);
+
+        del.setOnClickListener(v -> {
+            closeMarkerMenu();
+            deleteAction(index);
+        });
+        cancel.setOnClickListener(v -> closeMarkerMenu());
+        save.setOnClickListener(v -> {
+            Script s2 = ScriptStore.loadCurrent(this);
+            if (index < s2.actions.size()) {
+                Action b = s2.actions.get(index);
+                b.type = chosen[0];
+                b.x = (int) editorParse(ex, b.x);
+                b.y = (int) editorParse(ey, b.y);
+                b.x2 = (int) editorParse(ex2, b.x2);
+                b.y2 = (int) editorParse(ey2, b.y2);
+                b.duration = Math.max(0, editorParse(eDur, b.duration));
+                b.repeat = (int) Math.max(1, editorParse(eRep, 1));
+                b.delayAfter = Math.max(0, editorParse(eDelay, b.delayAfter));
+                ScriptStore.saveCurrent(this, s2);
+                toast("Acción " + (index + 1) + " guardada");
+            }
+            closeMarkerMenu();
+            rebuildMarkers();
+            notifyListener();
+        });
+
+        ScrollView scroll = new ScrollView(ctx);
+        scroll.addView(box);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(0xF2202124);
+        bg.setCornerRadius(dp(20));
+        scroll.setBackground(bg);
+
+        int w = Math.min(sz.x - dp(32), dp(360));
+        WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
+                w, WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+                PixelFormat.TRANSLUCENT);
+        lp.gravity = Gravity.CENTER;
+        lp.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN;
+        lp.dimAmount = 0.4f;
+        lp.flags |= WindowManager.LayoutParams.FLAG_DIM_BEHIND;
+        scroll.setOnTouchListener((v, e) -> {
+            boolean outside = e.getActionMasked() == MotionEvent.ACTION_OUTSIDE
+                    || (e.getActionMasked() == MotionEvent.ACTION_DOWN
+                    && (e.getX() < 0 || e.getY() < 0 || e.getX() > v.getWidth() || e.getY() > v.getHeight()));
+            if (outside) {
+                closeMarkerMenu();
+                return true;
+            }
+            return false;
+        });
+        wm.addView(scroll, lp);
+        markerMenu = scroll;
     }
 
-    private TextView menuButton(String label, int color) {
-        TextView t = new TextView(this);
+    private TextView editorLabel(Context ctx, String s) {
+        TextView t = new TextView(ctx);
+        t.setText(s);
+        t.setTextColor(0xFFB0BEC5);
+        t.setTextSize(13);
+        t.setPadding(0, dp(10), 0, 0);
+        return t;
+    }
+
+    private EditText editorNum(Context ctx, long v) {
+        EditText e = new EditText(ctx);
+        e.setInputType(InputType.TYPE_CLASS_NUMBER);
+        e.setSingleLine(true);
+        e.setText(String.valueOf(v));
+        e.setTextColor(Color.WHITE);
+        e.setSelectAllOnFocus(true);
+        return e;
+    }
+
+    private LinearLayout editorRow(Context ctx, EditText a, EditText b) {
+        LinearLayout row = new LinearLayout(ctx);
+        row.addView(a, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(b, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        return row;
+    }
+
+    private TextView editorButton(Context ctx, String label, int color) {
+        TextView t = new TextView(ctx);
         t.setText(label);
         t.setTextColor(color);
         t.setTextSize(15);
-        t.setTypeface(null, android.graphics.Typeface.BOLD);
-        t.setPadding(dp(12), dp(10), dp(12), dp(10));
+        t.setTypeface(null, Typeface.BOLD);
+        t.setGravity(Gravity.CENTER);
+        t.setSingleLine(true);
+        t.setPadding(dp(4), dp(12), dp(4), dp(12));
         return t;
+    }
+
+    private static long editorParse(EditText e, long def) {
+        try {
+            return Long.parseLong(e.getText().toString().trim());
+        } catch (NumberFormatException ex) {
+            return def;
+        }
+    }
+
+    /** Panel que se arrastra manteniendo pulsado cualquier punto (o al instante desde ⠿). */
+    private class DragPanel extends LinearLayout {
+        private float downX, downY;
+        private int startX, startY;
+        private boolean dragging;
+        private final int slop = dp(8);
+        private final Runnable arm = () -> {
+            dragging = true;
+            performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+            setAlpha(0.75f);
+        };
+
+        DragPanel(Context c) {
+            super(c);
+        }
+
+        private void begin(MotionEvent e) {
+            downX = e.getRawX();
+            downY = e.getRawY();
+            startX = panelLp.x;
+            startY = panelLp.y;
+            dragging = false;
+            removeCallbacks(arm);
+            postDelayed(arm, 400);
+        }
+
+        private boolean movedFar(MotionEvent e) {
+            return Math.abs(e.getRawX() - downX) > slop || Math.abs(e.getRawY() - downY) > slop;
+        }
+
+        private void finish() {
+            removeCallbacks(arm);
+            dragging = false;
+            setAlpha(1f);
+        }
+
+        @Override
+        public boolean onInterceptTouchEvent(MotionEvent e) {
+            switch (e.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    begin(e);
+                    return false;
+                case MotionEvent.ACTION_MOVE:
+                    if (dragging) return true;
+                    if (movedFar(e)) removeCallbacks(arm);
+                    return false;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    boolean was = dragging;
+                    finish();
+                    return was;
+            }
+            return false;
+        }
+
+        @Override
+        public boolean onTouchEvent(MotionEvent e) {
+            switch (e.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    begin(e);
+                    return true;
+                case MotionEvent.ACTION_MOVE:
+                    if (dragging) {
+                        panelLp.x = startX + (int) (e.getRawX() - downX);
+                        panelLp.y = startY + (int) (e.getRawY() - downY);
+                        try {
+                            wm.updateViewLayout(this, panelLp);
+                        } catch (Exception ignored) {
+                        }
+                    } else if (movedFar(e)) {
+                        removeCallbacks(arm);
+                    }
+                    return true;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    finish();
+                    return true;
+            }
+            return true;
+        }
     }
 
     private void deleteAction(int index) {
@@ -464,23 +707,6 @@ public class ClickService extends AccessibilityService {
         deleteAction(s.actions.size() - 1);
     }
 
-    private long deleteAllArmedAt;
-
-    private void confirmDeleteAll() {
-        long now = SystemClock.uptimeMillis();
-        if (now - deleteAllArmedAt < 4000) {
-            Script s = ScriptStore.loadCurrent(this);
-            s.actions.clear();
-            ScriptStore.saveCurrent(this, s);
-            deleteAllArmedAt = 0;
-            toast("Todas las acciones eliminadas");
-            rebuildMarkers();
-            notifyListener();
-        } else {
-            deleteAllArmedAt = now;
-            toast("Mantén ⌫ otra vez para borrar TODAS las acciones");
-        }
-    }
 
     /** Vuelve a dibujar los marcadores de todas las acciones con coordenadas. */
     public void rebuildMarkers() {
@@ -543,7 +769,7 @@ public class ClickService extends AccessibilityService {
                 ScriptStore.saveCurrent(this, s);
                 notifyListener();
             }
-        }, v -> showMarkerMenu(index, lp));
+        }, v -> showMarkerEditor(index));
         wm.addView(m, lp);
         markers.add(m);
         // Corrige un posible desplazamiento (barra de estado / notch) entre la ventana y la pantalla.

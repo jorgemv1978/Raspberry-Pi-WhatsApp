@@ -91,10 +91,10 @@ public class MainActivity extends Activity implements ClickService.Listener {
         root.addView(header("2. Panel flotante"));
         btnPanel = button("Mostrar panel flotante", v -> togglePanel());
         root.addView(btnPanel);
-        root.addView(note("⠿ mover · ▶/■ ejecutar/parar · ＋ toque (mantén para pulsación larga) · ⇢ deslizar · "
-                + "● grabar gestos · ⌫ borrar la última acción (mantén 2 veces para borrar todas) · "
+        root.addView(note("Mantén pulsada la barra (o arrastra ⠿) para moverla · ▶/■ ejecutar/parar · ＋ toque · ⇢ deslizar · "
+                + "● grabar gestos · ⌫ borrar la última acción · "
                 + "◎ mostrar/ocultar marcadores · ⚙ abrir app · ✕ cerrar.\n"
-                + "Arrastra los círculos numerados para colocarlos; tócalos para eliminarlos. Volumen- detiene la ejecución."));
+                + "Arrastra los círculos numerados para colocarlos; tócalos para editar tipo, tiempos, repeticiones o eliminarlos. Volumen- detiene la ejecución."));
 
         // --- Opciones del script
         root.addView(header("3. Script"));
