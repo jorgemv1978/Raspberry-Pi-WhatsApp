@@ -132,7 +132,7 @@ public class Action {
                 break;
         }
         if (type.hasDuration()) {
-            sb.append(type == CLICK_TEXT ? " · espera máx " : " · ").append(duration).append(" ms");
+            sb.append(type == Type.CLICK_TEXT ? " · espera máx " : " · ").append(duration).append(" ms");
         }
         if (repeat > 1) sb.append(" · x").append(repeat);
         sb.append(" · pausa ").append(delayAfter).append(" ms");
