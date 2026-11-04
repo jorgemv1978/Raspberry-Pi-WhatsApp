@@ -205,6 +205,7 @@ public class ClickService extends AccessibilityService {
         TextView swipe = panelButton("⇢");
         btnRecord = panelButton("●");
         TextView undo = panelButton("⌫");
+        TextView saveBtn = panelButton("💾");
         TextView eye = panelButton("◎");
         TextView settings = panelButton("⚙");
         TextView close = panelButton("✕");
@@ -224,6 +225,7 @@ public class ClickService extends AccessibilityService {
         add.setOnClickListener(v -> addActionAtCenter(Action.Type.TAP));
         swipe.setOnClickListener(v -> addActionAtCenter(Action.Type.SWIPE));
         undo.setOnClickListener(v -> deleteLastAction());
+        saveBtn.setOnClickListener(v -> showSaveDialog());
         btnRecord.setOnClickListener(v -> {
             if (recordView != null) stopRecording(true);
             else startRecording();
@@ -245,6 +247,7 @@ public class ClickService extends AccessibilityService {
         panel.addView(swipe);
         panel.addView(btnRecord);
         panel.addView(undo);
+        panel.addView(saveBtn);
         panel.addView(eye);
         panel.addView(settings);
         panel.addView(close);
@@ -253,6 +256,7 @@ public class ClickService extends AccessibilityService {
         editButtons.add(add);
         editButtons.add(swipe);
         editButtons.add(undo);
+        editButtons.add(saveBtn);
         editButtons.add(eye);
         editButtons.add(settings);
         editButtons.add(close);
@@ -279,9 +283,9 @@ public class ClickService extends AccessibilityService {
         TextView t = new TextView(this);
         t.setText(label);
         t.setTextColor(Color.WHITE);
-        t.setTextSize(18);
+        t.setTextSize(17);
         t.setGravity(Gravity.CENTER);
-        int s = dp(38);
+        int s = dp(36);
         t.setLayoutParams(new LinearLayout.LayoutParams(s, s));
         TypedValue tv = new TypedValue();
         getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, tv, true);
@@ -528,8 +532,15 @@ public class ClickService extends AccessibilityService {
             notifyListener();
         });
 
+        showCard(ctx, box, false);
+    }
+
+    /** Muestra una tarjeta flotante centrada (editor / guardar). Tocar fuera la cierra. */
+    private void showCard(Context ctx, View content, boolean keyboard) {
+        closeMarkerMenu();
+        Point sz = screenSize();
         ScrollView scroll = new ScrollView(ctx);
-        scroll.addView(box);
+        scroll.addView(content);
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(0xF2202124);
         bg.setCornerRadius(dp(20));
@@ -539,12 +550,14 @@ public class ClickService extends AccessibilityService {
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
                 w, WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
+                        | WindowManager.LayoutParams.FLAG_DIM_BEHIND,
                 PixelFormat.TRANSLUCENT);
         lp.gravity = Gravity.CENTER;
-        lp.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN;
+        lp.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN
+                | (keyboard ? WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
+                : WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN);
         lp.dimAmount = 0.4f;
-        lp.flags |= WindowManager.LayoutParams.FLAG_DIM_BEHIND;
         scroll.setOnTouchListener((v, e) -> {
             boolean outside = e.getActionMasked() == MotionEvent.ACTION_OUTSIDE
                     || (e.getActionMasked() == MotionEvent.ACTION_DOWN
@@ -557,6 +570,95 @@ public class ClickService extends AccessibilityService {
         });
         wm.addView(scroll, lp);
         markerMenu = scroll;
+    }
+
+    /** Guardar el script actual con un nombre, o cargar uno guardado. */
+    private void showSaveDialog() {
+        Context ctx = new ContextThemeWrapper(this, android.R.style.Theme_DeviceDefault);
+        Script cur = ScriptStore.loadCurrent(this);
+        LinearLayout box = new LinearLayout(ctx);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int pad = dp(16);
+        box.setPadding(pad, pad, pad, dp(8));
+
+        TextView title = new TextView(ctx);
+        title.setText("Guardar script");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(18);
+        title.setTypeface(null, Typeface.BOLD);
+        box.addView(title);
+        TextView info = editorLabel(ctx, cur.actions.size() + " acciones · nombre:");
+        box.addView(info);
+
+        EditText name = new EditText(ctx);
+        name.setSingleLine(true);
+        name.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        name.setText(cur.name);
+        name.setSelectAllOnFocus(true);
+        name.setTextColor(Color.WHITE);
+        box.addView(name);
+        List<String> saved = ScriptStore.savedNames(this);
+        TextView warn = editorLabel(ctx, "");
+        warn.setTextColor(0xFFFFB74D);
+        box.addView(warn);
+        Runnable check = () -> {
+            boolean exists = saved.contains(name.getText().toString().trim());
+            warn.setText(exists ? "Ya existe: se sobrescribirá" : "");
+            warn.setVisibility(exists ? View.VISIBLE : View.GONE);
+        };
+        check.run();
+        name.addTextChangedListener(new android.text.TextWatcher() {
+            public void beforeTextChanged(CharSequence c, int a, int b, int d) {}
+            public void onTextChanged(CharSequence c, int a, int b, int d) { check.run(); }
+            public void afterTextChanged(android.text.Editable e) {}
+        });
+
+        LinearLayout buttons = new LinearLayout(ctx);
+        buttons.setPadding(0, dp(8), 0, 0);
+        TextView cancel = editorButton(ctx, "Cancelar", 0xFFBBBBBB);
+        TextView save = editorButton(ctx, "Guardar", 0xFF64B5F6);
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        buttons.addView(save, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        box.addView(buttons);
+        cancel.setOnClickListener(v -> closeMarkerMenu());
+        save.setOnClickListener(v -> {
+            String n = name.getText().toString().trim();
+            if (n.isEmpty()) {
+                toast("Escribe un nombre");
+                return;
+            }
+            ScriptStore.saveAs(this, n, ScriptStore.loadCurrent(this));
+            toast("Script guardado: " + n);
+            closeMarkerMenu();
+            notifyListener();
+        });
+
+        if (!saved.isEmpty()) {
+            box.addView(editorLabel(ctx, "Cargar un script guardado:"));
+            for (String n : saved) {
+                Script sc = ScriptStore.loadSaved(this, n);
+                TextView row = new TextView(ctx);
+                row.setText(n + (sc != null ? "  ·  " + sc.actions.size() + " acciones" : ""));
+                row.setTextColor(Color.WHITE);
+                row.setTextSize(15);
+                row.setSingleLine(true);
+                row.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                row.setPadding(dp(4), dp(12), dp(4), dp(12));
+                row.setOnClickListener(v -> {
+                    if (sc != null) {
+                        ScriptStore.saveCurrent(this, sc);
+                        toast("Cargado: " + n);
+                        closeMarkerMenu();
+                        markersVisible = true;
+                        rebuildMarkers();
+                        notifyListener();
+                    }
+                });
+                box.addView(row);
+            }
+        }
+        showCard(ctx, box, true);
+        name.requestFocus();
     }
 
     private TextView editorLabel(Context ctx, String s) {

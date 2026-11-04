@@ -30,7 +30,7 @@ pausa entre vueltas, **desplazamiento aleatorio** en píxeles, **variación alea
 
 mantener pulsada la barra (o arrastrar `⠿`) para moverla · `▶/■` ejecutar/parar · `＋` añadir toque · `⇢` añadir deslizamiento ·
 `●` grabar tus gestos (toques, dobles toques, pulsaciones largas, deslizamientos y trazos libres, con sus tiempos) ·
-`⌫` borrar la última acción · `◎` mostrar/ocultar marcadores · `⚙` abrir la app · `✕` cerrar.
+`⌫` borrar la última acción · `💾` guardar el script con nombre o cargar uno guardado · `◎` mostrar/ocultar marcadores · `⚙` abrir la app · `✕` cerrar.
 
 Arrastra los círculos numerados para colocar cada punto; **tócalos para editarlos** (tipo, coordenadas, duración, repeticiones, pausa) o eliminarlos. **Volumen-** detiene la ejecución en cualquier momento.
 
