@@ -58,6 +58,7 @@ public class ClickService extends AccessibilityService {
 
     private final List<View> markers = new ArrayList<>();
     private boolean markersVisible = true;
+    private View markerMenu;
 
     private volatile boolean running;
     private Thread worker;
@@ -193,7 +194,8 @@ public class ClickService extends AccessibilityService {
         btnPlay = panelButton("▶");
         TextView add = panelButton("＋");
         TextView swipe = panelButton("⇢");
-        btnRecord = panelButton("⏺");
+        btnRecord = panelButton("●");
+        TextView undo = panelButton("⌫");
         TextView eye = panelButton("◎");
         TextView settings = panelButton("⚙");
         TextView close = panelButton("✕");
@@ -213,6 +215,11 @@ public class ClickService extends AccessibilityService {
             return true;
         });
         swipe.setOnClickListener(v -> addActionAtCenter(Action.Type.SWIPE));
+        undo.setOnClickListener(v -> deleteLastAction());
+        undo.setOnLongClickListener(v -> {
+            confirmDeleteAll();
+            return true;
+        });
         btnRecord.setOnClickListener(v -> {
             if (recordView != null) stopRecording(true);
             else startRecording();
@@ -233,6 +240,7 @@ public class ClickService extends AccessibilityService {
         panel.addView(add);
         panel.addView(swipe);
         panel.addView(btnRecord);
+        panel.addView(undo);
         panel.addView(eye);
         panel.addView(settings);
         panel.addView(close);
@@ -241,7 +249,7 @@ public class ClickService extends AccessibilityService {
         panelLp = overlayParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, true);
         panelLp.x = dp(8);
         panelLp.y = dp(120);
-        makeDraggable(handle, panel, panelLp, null);
+        makeDraggable(handle, panel, panelLp, null, null);
         wm.addView(panel, panelLp);
         markersVisible = true;
         rebuildMarkers();
@@ -260,9 +268,9 @@ public class ClickService extends AccessibilityService {
         TextView t = new TextView(this);
         t.setText(label);
         t.setTextColor(Color.WHITE);
-        t.setTextSize(20);
+        t.setTextSize(18);
         t.setGravity(Gravity.CENTER);
-        int s = dp(42);
+        int s = dp(38);
         t.setLayoutParams(new LinearLayout.LayoutParams(s, s));
         TypedValue tv = new TypedValue();
         getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, tv, true);
@@ -297,8 +305,12 @@ public class ClickService extends AccessibilityService {
         void onDragEnd(View v);
     }
 
+    private interface Tap {
+        void onTap(View v);
+    }
+
     @SuppressLint("ClickableViewAccessibility")
-    private void makeDraggable(View touchTarget, View window, WindowManager.LayoutParams lp, DragEnd end) {
+    private void makeDraggable(View touchTarget, View window, WindowManager.LayoutParams lp, DragEnd end, Tap tap) {
         touchTarget.setOnTouchListener(new View.OnTouchListener() {
             float downX, downY;
             int startX, startY;
@@ -326,6 +338,9 @@ public class ClickService extends AccessibilityService {
                         }
                         return true;
                     case MotionEvent.ACTION_UP:
+                        if (!moved && tap != null) tap.onTap(window);
+                        else if (end != null) end.onDragEnd(window);
+                        return true;
                     case MotionEvent.ACTION_CANCEL:
                         if (end != null) end.onDragEnd(window);
                         return true;
@@ -353,8 +368,100 @@ public class ClickService extends AccessibilityService {
     }
 
     private void removeMarkers() {
+        closeMarkerMenu();
         for (View m : markers) safeRemove(m);
         markers.clear();
+    }
+
+    private void closeMarkerMenu() {
+        safeRemove(markerMenu);
+        markerMenu = null;
+    }
+
+    /** Menú al tocar un marcador: eliminar la acción. */
+    private void showMarkerMenu(int index, WindowManager.LayoutParams markerLp) {
+        closeMarkerMenu();
+        Script s = ScriptStore.loadCurrent(this);
+        if (index >= s.actions.size()) return;
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.HORIZONTAL);
+        box.setGravity(Gravity.CENTER_VERTICAL);
+        int pad = dp(6);
+        box.setPadding(pad, pad, pad, pad);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(0xF0202124);
+        bg.setCornerRadius(dp(14));
+        box.setBackground(bg);
+
+        TextView title = new TextView(this);
+        title.setText((index + 1) + ". " + s.actions.get(index).type.label);
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(13);
+        title.setPadding(dp(8), 0, dp(8), 0);
+        TextView del = menuButton("🗑 Eliminar", 0xFFFF5252);
+        TextView cancel = menuButton("Cancelar", Color.WHITE);
+        del.setOnClickListener(v -> deleteAction(index));
+        cancel.setOnClickListener(v -> closeMarkerMenu());
+        box.addView(title);
+        box.addView(del);
+        box.addView(cancel);
+
+        WindowManager.LayoutParams lp = overlayParams(WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT, true);
+        Point sz = screenSize();
+        lp.x = Math.max(0, Math.min(markerLp.x - dp(60), sz.x - dp(300)));
+        lp.y = markerLp.y + dp(50);
+        if (lp.y > sz.y - dp(120)) lp.y = markerLp.y - dp(60);
+        wm.addView(box, lp);
+        markerMenu = box;
+    }
+
+    private TextView menuButton(String label, int color) {
+        TextView t = new TextView(this);
+        t.setText(label);
+        t.setTextColor(color);
+        t.setTextSize(15);
+        t.setTypeface(null, android.graphics.Typeface.BOLD);
+        t.setPadding(dp(12), dp(10), dp(12), dp(10));
+        return t;
+    }
+
+    private void deleteAction(int index) {
+        Script s = ScriptStore.loadCurrent(this);
+        if (index < s.actions.size()) {
+            s.actions.remove(index);
+            ScriptStore.saveCurrent(this, s);
+            toast("Acción " + (index + 1) + " eliminada");
+        }
+        rebuildMarkers();
+        notifyListener();
+    }
+
+    private void deleteLastAction() {
+        Script s = ScriptStore.loadCurrent(this);
+        if (s.actions.isEmpty()) {
+            toast("No hay acciones");
+            return;
+        }
+        deleteAction(s.actions.size() - 1);
+    }
+
+    private long deleteAllArmedAt;
+
+    private void confirmDeleteAll() {
+        long now = SystemClock.uptimeMillis();
+        if (now - deleteAllArmedAt < 4000) {
+            Script s = ScriptStore.loadCurrent(this);
+            s.actions.clear();
+            ScriptStore.saveCurrent(this, s);
+            deleteAllArmedAt = 0;
+            toast("Todas las acciones eliminadas");
+            rebuildMarkers();
+            notifyListener();
+        } else {
+            deleteAllArmedAt = now;
+            toast("Mantén ⌫ otra vez para borrar TODAS las acciones");
+        }
     }
 
     /** Vuelve a dibujar los marcadores de todas las acciones con coordenadas. */
@@ -418,7 +525,7 @@ public class ClickService extends AccessibilityService {
                 ScriptStore.saveCurrent(this, s);
                 notifyListener();
             }
-        });
+        }, v -> showMarkerMenu(index, lp));
         wm.addView(m, lp);
         markers.add(m);
         // Corrige un posible desplazamiento (barra de estado / notch) entre la ventana y la pantalla.
@@ -478,7 +585,7 @@ public class ClickService extends AccessibilityService {
         bringPanelToFront();
         updatePanel();
         setStatus("Grabando…");
-        toast("Grabando: toca, mantén o desliza sobre la pantalla. Pulsa ⏺ para terminar.");
+        toast("Grabando: toca, mantén o desliza sobre la pantalla. Pulsa ● para terminar.");
     }
 
     private void recordGesture(List<float[]> pts, long down, long up) {

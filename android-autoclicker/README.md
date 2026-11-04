@@ -29,10 +29,10 @@ pausa entre vueltas, **desplazamiento aleatorio** en píxeles, **variación alea
 ## Panel flotante
 
 `⠿` mover · `▶/■` ejecutar/parar · `＋` añadir toque (mantener = pulsación larga) · `⇢` añadir deslizamiento ·
-`⏺` grabar tus gestos (toques, dobles toques, pulsaciones largas, deslizamientos y trazos libres, con sus tiempos) ·
-`◎` mostrar/ocultar marcadores · `⚙` abrir la app · `✕` cerrar.
+`●` grabar tus gestos (toques, dobles toques, pulsaciones largas, deslizamientos y trazos libres, con sus tiempos) ·
+`⌫` borrar la última acción (mantener dos veces = borrar todas) · `◎` mostrar/ocultar marcadores · `⚙` abrir la app · `✕` cerrar.
 
-Arrastra los círculos numerados para colocar cada punto. **Volumen-** detiene la ejecución en cualquier momento.
+Arrastra los círculos numerados para colocar cada punto; **tócalos para eliminarlos**. **Volumen-** detiene la ejecución en cualquier momento.
 
 ## Instalación
 
