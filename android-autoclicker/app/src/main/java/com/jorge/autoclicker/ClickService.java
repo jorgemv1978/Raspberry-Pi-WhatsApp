@@ -634,9 +634,11 @@ public class ClickService extends AccessibilityService {
         });
 
         if (!saved.isEmpty()) {
-            box.addView(editorLabel(ctx, "Cargar un script guardado:"));
+            box.addView(editorLabel(ctx, "Scripts guardados (toca para cargar, 🗑 para borrar):"));
             for (String n : saved) {
                 Script sc = ScriptStore.loadSaved(this, n);
+                LinearLayout line = new LinearLayout(ctx);
+                line.setGravity(Gravity.CENTER_VERTICAL);
                 TextView row = new TextView(ctx);
                 row.setText(n + (sc != null ? "  ·  " + sc.actions.size() + " acciones" : ""));
                 row.setTextColor(Color.WHITE);
@@ -654,7 +656,23 @@ public class ClickService extends AccessibilityService {
                         notifyListener();
                     }
                 });
-                box.addView(row);
+                TextView del = editorButton(ctx, "🗑", 0xFFFF6E6E);
+                del.setPadding(dp(14), dp(10), dp(10), dp(10));
+                final boolean[] armed = {false};
+                del.setOnClickListener(v -> {
+                    if (!armed[0]) {
+                        armed[0] = true;
+                        del.setText("¿Borrar?");
+                        return;
+                    }
+                    ScriptStore.deleteSaved(this, n);
+                    toast("Script borrado: " + n);
+                    notifyListener();
+                    showSaveDialog();
+                });
+                line.addView(row, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+                line.addView(del, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                box.addView(line);
             }
         }
         showCard(ctx, box, true);
@@ -810,11 +828,23 @@ public class ClickService extends AccessibilityService {
     }
 
 
+    /** Resalta el marcador de la acción que se está ejecutando. */
+    private void highlightMarker(int index) {
+        main.post(() -> {
+            for (View m : markers) {
+                boolean cur = Integer.valueOf(index).equals(m.getTag());
+                m.setAlpha(cur ? 1f : 0.45f);
+                m.setScaleX(cur ? 1.15f : 1f);
+                m.setScaleY(cur ? 1.15f : 1f);
+            }
+        });
+    }
+
     /** Vuelve a dibujar los marcadores de todas las acciones con coordenadas. */
     public void rebuildMarkers() {
         main.post(() -> {
             removeMarkers();
-            if (panel == null || !markersVisible || running || recordView != null) return;
+            if (panel == null || !markersVisible || recordView != null) return;
             Script s = ScriptStore.loadCurrent(this);
             for (int i = 0; i < s.actions.size(); i++) {
                 Action a = s.actions.get(i);
@@ -850,7 +880,10 @@ public class ClickService extends AccessibilityService {
         d.setStroke(dp(2), Color.WHITE);
         m.setBackground(d);
 
-        WindowManager.LayoutParams lp = overlayParams(size, size, true);
+        // Durante la ejecución los marcadores no reciben toques: los gestos pasan a la app de debajo.
+        WindowManager.LayoutParams lp = overlayParams(size, size, !running);
+        m.setTag(index);
+        if (running) m.setAlpha(0.45f);
         lp.x = cx - size / 2;
         lp.y = cy - size / 2;
         makeDraggable(m, m, lp, v -> {
@@ -1027,7 +1060,7 @@ public class ClickService extends AccessibilityService {
             return;
         }
         running = true;
-        removeMarkers();
+        rebuildMarkers();
         updatePanel();
         notifyListener();
         toast("Ejecutando… (Volumen- o ■ para parar)");
@@ -1051,6 +1084,7 @@ public class ClickService extends AccessibilityService {
                     Action a = s.actions.get(i);
                     for (int r = 0; r < a.repeat && running; r++) {
                         setStatus("V" + loop + (s.loops > 0 ? "/" + s.loops : "") + " · A" + (i + 1));
+                        highlightMarker(i);
                         execute(a, s);
                         sleepVar(a.delayAfter, s);
                         if (SystemClock.uptimeMillis() >= endAt) break;
